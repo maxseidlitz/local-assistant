@@ -1,0 +1,39 @@
+# daemon/config.toml
+
+[models]
+router    = "gemma4:e2b"
+workhorse = "gemma4:26b"
+embed     = "nomic-embed-text"
+
+[models.options]
+num_ctx         = 16384
+flash_attention = true
+kv_cache_type   = "q8_0"
+
+[models.keep_alive]
+router    = "-1"
+workhorse = "10m"
+embed     = "60s"
+
+[ollama]
+base_url = "http://127.0.0.1:11434"
+
+[loop]
+max_iterations  = 8
+timeout_seconds = 45
+
+[vault]
+path         = "~/Vault"
+daily_folder = "daily"
+
+[server]
+host = "127.0.0.1"
+port = 8765
+
+[security]
+shell_whitelist = ["ls", "cat", "open", "git status"]
+require_confirm_outside_whitelist = true
+
+[scheduler]
+daily_note_hour   = 0
+daily_note_minute = 5
