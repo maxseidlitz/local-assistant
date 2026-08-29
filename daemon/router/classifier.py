@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 CATEGORIES = ("quick_answer", "vault_op", "tool_task", "vision_task", "complex")
 
 CLASSIFIER_PROMPT = """Klassifiziere die Benutzeranfrage in genau eine Kategorie.
-Antworte NUR mit JSON: {"category": "<kategorie>"}
+Antworte NUR mit JSON: {{"category": "<kategorie>"}}
 
 Kategorien:
 - quick_answer: einfache Fakten, Smalltalk, kurze Erklärungen

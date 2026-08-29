@@ -53,6 +53,8 @@ async def send_request(
                 )
             elif msg_type == "result":
                 result_text = msg.get("text", result_text)
+                if result_text and not result_text.endswith("\n"):
+                    print(result_text)
                 break
             elif msg_type == "error":
                 print(f"\n[error] {msg.get('message')}", file=sys.stderr)
