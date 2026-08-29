@@ -30,6 +30,7 @@ packages = ["daemon"]
 
 [dependency-groups]
 dev = [
+    "pillow>=12.3.0",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
 ]
