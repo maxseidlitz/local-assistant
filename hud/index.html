@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Infant:ital,wght@1,500;1,600&family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@380;450;560&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css?v=2" />
+  </head>
+  <body>
+    <div class="veil" aria-hidden="true"></div>
+
+    <main class="chassis" id="chassis">
+      <div class="rim" aria-hidden="true"></div>
+
+      <header class="plate">
+        <div class="plate-left">
+          <p class="mark">Local Assistant</p>
+          <p class="meta" id="meta">127.0.0.1 · Vault wird gelesen</p>
+        </div>
+        <div class="plate-right">
+          <span class="chip" id="model" hidden></span>
+          <span class="elapsed" id="elapsed" hidden></span>
+          <span class="led" id="led" data-state="offline" aria-hidden="true"></span>
+          <span class="link" id="link">getrennt</span>
+        </div>
+      </header>
+
+      <section class="stage" aria-live="polite">
+        <div class="state-row">
+          <p class="state" id="state">bereit</p>
+          <div class="sweep" aria-hidden="true"></div>
+        </div>
+        <div class="wave" id="wave" hidden aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+
+        <article class="turn" id="turn" hidden>
+          <p class="query" id="query"></p>
+          <ol class="rail" id="rail"></ol>
+          <div class="slip" id="slip" hidden>
+            <p class="slip-text" id="answer"></p>
+          </div>
+          <p class="fault" id="fault" hidden></p>
+        </article>
+
+        <p class="idle" id="idle">Sag, was erledigt werden soll.</p>
+      </section>
+
+      <form class="slot" id="form">
+        <label class="sr-only" for="input">Anfrage</label>
+        <textarea
+          id="input"
+          name="text"
+          rows="1"
+          autocomplete="off"
+          placeholder="Frage oder Befehl"
+        ></textarea>
+        <div class="slot-actions">
+          <button type="button" class="ghost" id="attach" title="Aktives Fenster anhängen">
+            Fenster
+          </button>
+          <button type="button" class="ghost" id="ptt" title="Push-to-Talk, Ctrl+Space">
+            Sprechen
+          </button>
+          <button type="button" class="ghost" id="cancel" hidden>Abbrechen</button>
+          <button type="submit" class="send" id="send">Senden</button>
+        </div>
+      </form>
+    </main>
+
+    <dialog class="confirm" id="confirm" aria-labelledby="confirm-title">
+      <p class="confirm-kicker">Bestätigung</p>
+      <h2 id="confirm-title">Befehl ausführen?</h2>
+      <pre class="confirm-detail" id="confirm-detail"></pre>
+      <div class="confirm-actions">
+        <button type="button" class="ghost" id="deny">Ablehnen</button>
+        <button type="button" class="send" id="approve">Ausführen</button>
+      </div>
+    </dialog>
+
+    <script src="./app.js?v=2" type="module"></script>
+  </body>
+</html>

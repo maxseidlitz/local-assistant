@@ -203,15 +203,38 @@ class LLMProvider:
 
     async def embed(self, text: str) -> list[float]:
         model = self.model_for_role("embed")
-        payload = {
-            "model": model,
-            "input": text,
-            "keep_alive": self.keep_alive_for_role("embed"),
-        }
-        response = await self._client.post("/v1/embeddings", json=payload)
-        response.raise_for_status()
-        data = response.json()
-        return data["data"][0]["embedding"]
+        keep_alive = self.keep_alive_for_role("embed")
+        attempts: list[tuple[str, dict[str, Any]]] = [
+            ("/api/embed", {"model": model, "input": text, "keep_alive": keep_alive}),
+            ("/api/embeddings", {"model": model, "prompt": text, "keep_alive": keep_alive}),
+            ("/v1/embeddings", {"model": model, "input": text, "keep_alive": keep_alive}),
+        ]
+        last_error: Exception | None = None
+        for path, payload in attempts:
+            try:
+                response = await self._client.post(path, json=payload)
+                if response.status_code == 404:
+                    body = ""
+                    try:
+                        body = response.json().get("error", "")
+                    except Exception:
+                        body = response.text[:200]
+                    last_error = RuntimeError(body or f"404 {path}")
+                    if body and "not found" in body.lower():
+                        break
+                    continue
+                response.raise_for_status()
+                data = response.json()
+                if "embeddings" in data and data["embeddings"]:
+                    return data["embeddings"][0]
+                if "embedding" in data:
+                    return data["embedding"]
+                if "data" in data and data["data"]:
+                    return data["data"][0]["embedding"]
+            except (httpx.HTTPError, KeyError, IndexError, TypeError) as exc:
+                last_error = exc
+                continue
+        raise RuntimeError(f"Embedding fehlgeschlagen: {last_error}") from last_error
 
     async def health_ping(self, role: ModelRole) -> dict[str, Any]:
         """Misst Latenz für ein Modell (Router/Workhorse)."""

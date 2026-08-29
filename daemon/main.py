@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import structlog
 import uvicorn
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from daemon.config import load_config
 from daemon.llm.provider import LLMProvider
@@ -35,6 +41,7 @@ structlog.configure(
 )
 logger = structlog.get_logger(__name__)
 
+HUD_DIR = Path(__file__).resolve().parent.parent / "hud"
 config = load_config()
 sessions = SessionManager()
 clients: set[WebSocket] = set()
@@ -48,7 +55,7 @@ def build_tool_registry(
     llm: LLMProvider, v: Vault, retriever: HybridRetriever
 ) -> ToolRegistry:
     registry = ToolRegistry()
-    register_time_tools(registry)
+    register_time_tools(registry, v)
     register_vault_tools(registry, v, retriever)
     register_system_tools(registry, config.security.shell_whitelist)
     register_web_tools(registry)
@@ -68,7 +75,10 @@ async def lifespan(app: FastAPI):
 
     loop = asyncio.get_running_loop()
     vault_index.start_watcher(loop)
-    await vault_index.index_all()
+    try:
+        await vault_index.index_all()
+    except Exception as exc:
+        logger.warning("index.startup_failed", error=str(exc))
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
@@ -88,6 +98,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Local Assistant Daemon", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 async def broadcast(message: dict[str, Any]) -> None:
@@ -114,6 +130,70 @@ async def emit_to_clients(message: dict[str, Any]) -> None:
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/status")
+async def api_status() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "clients": len(clients),
+        "vault": str(vault.root) if vault else None,
+        "host": config.server.host,
+        "port": config.server.port,
+    }
+
+
+class TtsRequest(BaseModel):
+    text: str
+
+
+@app.get("/", include_in_schema=False)
+async def hud_index() -> FileResponse:
+    return FileResponse(HUD_DIR / "index.html")
+
+
+@app.get("/styles.css", include_in_schema=False)
+async def hud_css() -> FileResponse:
+    return FileResponse(HUD_DIR / "styles.css")
+
+
+@app.get("/app.js", include_in_schema=False)
+async def hud_js() -> FileResponse:
+    return FileResponse(HUD_DIR / "app.js")
+
+
+@app.post("/api/capture")
+async def api_capture() -> dict[str, str]:
+    from daemon.platform.capture import capture_to_file
+
+    path = capture_to_file("active_window")
+    return {"path": str(path)}
+
+
+@app.post("/api/transcribe")
+async def api_transcribe(file: UploadFile = File(...)) -> dict[str, str]:
+    from voice.transcribe import transcribe_file
+
+    suffix = Path(file.filename or "speech.webm").suffix or ".webm"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(await file.read())
+        tmp_path = Path(tmp.name)
+    try:
+        text = transcribe_file(tmp_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    return {"text": text}
+
+
+@app.post("/api/tts")
+async def api_tts(body: TtsRequest) -> FileResponse:
+    from voice.speaker import synthesize
+
+    path = synthesize(body.text)
+    media = "audio/wav" if path.suffix == ".wav" else "audio/aiff"
+    return FileResponse(path, media_type=media)
 
 
 @app.websocket("/ws")
@@ -165,6 +245,9 @@ async def handle_message(data: dict[str, Any], ws: WebSocket) -> None:
     except Exception as exc:
         logger.exception("request.failed", session_id=session.id)
         await emit({"type": "error", "id": session.id, "message": str(exc)})
+
+
+app.mount("/static", StaticFiles(directory=HUD_DIR), name="hud")
 
 
 def main() -> None:

@@ -1,4 +1,4 @@
-"""Wake-Word + VAD + STT — Phase 5."""
+"""PTT-Hilfe: Text an den Daemon senden (STT sitzt im Daemon)."""
 
 from __future__ import annotations
 
@@ -33,12 +33,12 @@ async def send_text(text: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Voice listener (Stub Phase 5)")
+    parser = argparse.ArgumentParser(description="Voice listener")
     parser.add_argument("--text", help="Simuliere STT-Ergebnis")
     args = parser.parse_args()
     if not args.text:
-        print("Phase 5: openWakeWord + faster-whisper noch nicht implementiert.")
-        print("Nutze --text zum Simulieren einer Spracheingabe.")
+        print("Push-to-Talk läuft über das HUD (Ctrl+Space halten).")
+        print("Zum Simulieren: --text \"wie spät ist es\"")
         return
     asyncio.run(send_text(args.text))
 

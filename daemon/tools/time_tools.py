@@ -2,23 +2,30 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
+
+from daemon.memory.tasks import add_task, due_label, list_open
+from daemon.memory.vault import Vault
+from daemon.tools.calendar_macos import read_schedule
 
 
-def register_time_tools(registry) -> None:
+def register_time_tools(registry, vault: Vault | None = None) -> None:
     async def get_current_time() -> str:
         now = datetime.now().astimezone()
         return now.strftime("Es ist %H:%M Uhr (%Z).")
 
     async def get_schedule(date_from: str, date_to: str) -> str:
-        return f"Kein Kalender verbunden. Angefragter Zeitraum: {date_from} bis {date_to}."
+        return read_schedule(date_from, date_to)
 
     async def create_reminder(text: str, due: str) -> str:
-        return f"Erinnerung notiert: '{text}' (fällig: {due}). Vault-Integration folgt in Phase 6."
+        if vault is None:
+            return f"Erinnerung (nicht persistiert): '{text}' (fällig: {due})."
+        return add_task(vault, text, due_label(due))
 
     async def list_open_tasks(project: str | None = None) -> str:
-        suffix = f" für Projekt '{project}'" if project else ""
-        return f"Keine Aufgabenliste konfiguriert{suffix}."
+        if vault is None:
+            return "Kein Vault für Aufgaben."
+        return list_open(vault, project)
 
     registry.register(
         "get_current_time",

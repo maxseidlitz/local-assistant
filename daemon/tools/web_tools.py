@@ -14,10 +14,25 @@ def register_web_tools(registry) -> None:
             return text[:8000] if len(text) > 8000 else text
 
     async def web_search(query: str) -> str:
-        return (
-            f"Websuche nicht konfiguriert. Anfrage: '{query}'. "
-            "In Phase 6 kann ein lokaler oder API-basierter Provider ergänzt werden."
-        )
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            return (
+                f"Websuche nicht verfügbar (Paket ddgs fehlt). Anfrage: '{query}'."
+            )
+        try:
+            rows = list(DDGS().text(query, max_results=5))
+        except Exception as exc:
+            return f"Websuche fehlgeschlagen: {exc}"
+        if not rows:
+            return f"Keine Treffer für '{query}'."
+        lines = []
+        for row in rows:
+            title = row.get("title") or row.get("href") or ""
+            href = row.get("href") or ""
+            body = row.get("body") or ""
+            lines.append(f"- {title}\n  {href}\n  {body}")
+        return "\n".join(lines)
 
     registry.register(
         "web_fetch",

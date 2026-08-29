@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import AsyncIterator
 from typing import Any
 
 import structlog
 
 from daemon.config import AppConfig
-from daemon.llm.provider import ChatMessage, LLMProvider
+from daemon.llm.provider import ChatMessage, ChatResponse, LLMProvider, ModelRole, StreamChunk
 from daemon.loop.session import EventEmitter, PendingConfirm, Session, SessionState
 from daemon.router.classifier import classify_intent, needs_workhorse
 from daemon.router.rules import RuleMatch, match_rules
@@ -34,8 +35,32 @@ class AgentLoop:
         self._provider = provider
         self._tools = tools
 
+    def _model_name(self, role: str) -> str:
+        try:
+            return self._provider.model_for_role(role)  # type: ignore[arg-type]
+        except Exception:
+            return role
+
+    async def _emit_status(
+        self,
+        emit: EventEmitter,
+        session: Session,
+        state: str,
+        *,
+        role: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"type": "status", "id": session.id, "state": state}
+        if role:
+            payload["model"] = self._model_name(role)
+        if detail:
+            payload["detail"] = detail
+        elif role:
+            payload["detail"] = self._model_name(role)
+        await emit(payload)
+
     async def run(self, session: Session, emit: EventEmitter) -> str:
-        await emit({"type": "status", "id": session.id, "state": SessionState.ROUTING.value})
+        await self._emit_status(emit, session, SessionState.ROUTING.value, detail="Routing")
 
         rule_match = match_rules(session.text)
         if rule_match and rule_match.action == "direct_tool" and rule_match.tool_name:
@@ -47,10 +72,17 @@ class AgentLoop:
         else:
             category = await classify_intent(self._provider, session.text)
 
-        role = "workhorse" if needs_workhorse(category) else "router"
+        role: ModelRole = "workhorse" if needs_workhorse(category) else "router"
+        user_text = session.text
+        shot = session.context.get("screenshot") if session.context else None
+        if shot:
+            user_text += (
+                f"\n\nEin Screenshot liegt unter {shot}. "
+                "Nutze look_at oder read_screen, wenn die Frage den Bildschirm betrifft."
+            )
         messages = [
             ChatMessage(role="system", content=SYSTEM_PROMPT),
-            ChatMessage(role="user", content=session.text),
+            ChatMessage(role="user", content=user_text),
         ]
         return await self._tool_loop(session, messages, role, emit)
 
@@ -62,11 +94,50 @@ class AgentLoop:
         await emit({"type": "result", "id": session.id, "text": result, "artifacts": []})
         return result
 
+    async def _complete(
+        self,
+        session: Session,
+        messages: list[ChatMessage],
+        role: ModelRole,
+        emit: EventEmitter,
+        *,
+        tools: list[dict[str, Any]] | None,
+        stream_text: bool,
+    ) -> ChatResponse:
+        result = self._provider.chat(
+            role,
+            messages,
+            tools=tools,
+            stream=stream_text,
+            disable_thinking=role == "router",
+        )
+        if asyncio.iscoroutine(result):
+            result = await result
+
+        if isinstance(result, ChatResponse):
+            if result.content and not stream_text:
+                pass
+            return result
+
+        if isinstance(result, AsyncIterator):
+            content = ""
+            tool_calls: list[dict[str, Any]] = []
+            async for chunk in result:
+                if isinstance(chunk, StreamChunk):
+                    if chunk.text:
+                        content += chunk.text
+                        await emit({"type": "token", "id": session.id, "text": chunk.text})
+                    if chunk.done and chunk.tool_calls:
+                        tool_calls = chunk.tool_calls
+            return ChatResponse(content=content or None, tool_calls=tool_calls)
+
+        raise TypeError(f"Unerwartete Chat-Antwort: {type(result)}")
+
     async def _tool_loop(
         self,
         session: Session,
         messages: list[ChatMessage],
-        role: str,
+        role: ModelRole,
         emit: EventEmitter,
     ) -> str:
         max_iter = self._config.loop.max_iterations
@@ -85,23 +156,35 @@ class AgentLoop:
                 await emit({"type": "result", "id": session.id, "text": msg, "artifacts": []})
                 return msg
 
-            await emit({"type": "status", "id": session.id, "state": SessionState.THINKING.value})
+            model = self._model_name(role)
+            await self._emit_status(
+                emit,
+                session,
+                SessionState.THINKING.value,
+                role=role,
+                detail=f"{model} denkt",
+            )
 
-            model_role = role if role in ("router", "workhorse") else "router"
-            response = await self._provider.chat(
-                model_role,  # type: ignore[arg-type]
+            # Tool-Runden ungestreamt (stabileres JSON). Reine Textantwort streamen.
+            # Wir streamen immer und werten tool_calls am Ende aus — wenn Tools kommen,
+            # waren etwaige Tokens Zwischenstand.
+            response = await self._complete(
+                session,
                 messages,
+                role,
+                emit,
                 tools=tools_schema if tools_schema else None,
-                disable_thinking=model_role == "router",
+                stream_text=True,
             )
 
             if response.content:
                 partial = response.content
-                await emit({"type": "token", "id": session.id, "text": response.content})
 
             if not response.tool_calls:
                 final = response.content or partial or "Keine Antwort."
-                await emit({"type": "status", "id": session.id, "state": SessionState.DONE.value})
+                await self._emit_status(
+                    emit, session, SessionState.DONE.value, role=role, detail="fertig"
+                )
                 await emit({"type": "result", "id": session.id, "text": final, "artifacts": []})
                 return final
 
@@ -152,28 +235,48 @@ class AgentLoop:
         args: dict[str, Any],
         emit: EventEmitter,
     ) -> str:
-        await emit({"type": "status", "id": session.id, "state": SessionState.TOOL.value})
+        await self._emit_status(
+            emit,
+            session,
+            SessionState.TOOL.value,
+            detail=name,
+        )
         await emit({"type": "tool_call", "id": session.id, "name": name, "args": args})
 
         if name == "run_shell":
             command = args.get("command", "")
             confirm = args.get("confirm", True)
             whitelist = self._config.security.shell_whitelist
+            parts = command.split()
             needs_confirm = (
                 self._config.security.require_confirm_outside_whitelist
-                and command.split()[0] not in whitelist
+                and parts
+                and parts[0] not in whitelist
                 and confirm
             )
             if needs_confirm:
                 approved = await self._request_confirm(session, "run_shell", command, emit)
                 if not approved:
-                    return "Befehl abgelehnt."
+                    denied = "Befehl abgelehnt."
+                    await emit(
+                        {
+                            "type": "tool_result",
+                            "id": session.id,
+                            "name": name,
+                            "text": denied,
+                        }
+                    )
+                    return denied
 
         try:
-            return await self._tools.execute(name, args, session_id=session.id)
+            result = await self._tools.execute(name, args, session_id=session.id)
         except Exception as exc:
             logger.exception("tool.error", name=name)
-            return f"Werkzeugfehler ({name}): {exc}"
+            result = f"Werkzeugfehler ({name}): {exc}"
+
+        preview = result if len(result) <= 400 else result[:397] + "..."
+        await emit({"type": "tool_result", "id": session.id, "name": name, "text": preview})
+        return result
 
     async def _request_confirm(
         self, session: Session, action: str, detail: str, emit: EventEmitter

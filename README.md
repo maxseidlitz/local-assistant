@@ -91,9 +91,10 @@ Notizen landen im Obsidian-Vault und sind per Hybrid-Retrieval (ripgrep + Embedd
 | Obsidian-Vault | ✅ | Lesen, Schreiben, Daily Notes, Frontmatter |
 | Hybrid-Suche | ✅ | ripgrep + `sqlite-vec`, Dateisystem-Watcher |
 | LLM-Abstraktion | ✅ | Modellwechsel nur in `daemon/config.toml` |
-| HUD (Tauri) | 🔜 | Phase 3 — OS-Entscheidung ausstehend |
-| Vision / OCR | 🔜 | Phase 4 — plattformnative OCR |
-| Voice | 🔜 | Phase 5 — Wake-Word, Whisper, Piper |
+| HUD (Web) | ✅ | Overlay unter `http://127.0.0.1:8765/` |
+| HUD (Tauri) | ✅ | Tray, `Alt+Space`, Always-on-Top |
+| Vision / OCR | ✅ | macOS Vision + `look_at` über `gemma4:26b` |
+| Voice | ✅ | Push-to-Talk (`Ctrl+Space`), Whisper CPU, Piper/`say` |
 
 ---
 
@@ -105,6 +106,7 @@ Notizen landen im Obsidian-Vault und sind per Hybrid-Retrieval (ripgrep + Embedd
 - **[uv](https://docs.astral.sh/uv/)** — Paketmanager
 - **[Ollama](https://ollama.com/)** — lokale Modell-Runtime
 - **ripgrep** (`rg`) — für Vault-Volltextsuche
+- **Rust + Node.js 20+** — nur für das Tauri-HUD
 - **32 GB RAM / 24 GB VRAM** empfohlen (siehe [PROJECT.md](PROJECT.md))
 
 ### Installation
@@ -125,11 +127,19 @@ Das Setup-Skript richtet die Python-Umgebung ein und zieht die konfigurierten Ol
 # Terminal 1 — Daemon
 uv run assistant-daemon
 
-# Terminal 2 — CLI
+# Browser — HUD
+open http://127.0.0.1:8765/
+
+# Terminal 2 — Tauri-Overlay (optional)
+cd hud && npm install && npm run tauri dev
+
+# Terminal 3 — CLI
 uv run assistant-cli "wie spät ist es"
 uv run assistant-cli "note: Einkaufsliste — Milch, Brot"
 uv run assistant-cli "search: Einkauf"
 ```
+
+Hotkeys im Tauri-HUD: `Alt+Space` ein-/ausblenden, `Ctrl+Space` halten zum Sprechen, `Esc` blendet aus.
 
 ### Healthcheck
 
@@ -176,7 +186,7 @@ local-assistant/
 │   ├── memory/       # Vault, Index, Retrieval
 │   └── tools/        # Werkzeugkatalog
 ├── cli.py            # WebSocket-CLI-Client
-├── hud/              # Tauri-Overlay (Phase 3)
+├── hud/              # Web-Overlay + Tauri (Tray, Hotkey)
 ├── voice/            # STT/TTS (Phase 5)
 ├── scripts/          # Setup, Healthcheck, Screenshots
 └── docs/screenshots/ # README-Screenshots

@@ -40,9 +40,12 @@ class VaultIndex:
         self._vault = vault
         self._provider = provider
         self._db_path = vault.root / ".assistant" / "index.db"
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._conn.enable_load_extension(True)
         sqlite_vec.load(self._conn)
+        self._conn.enable_load_extension(False)
         self._lock = threading.Lock()
         self._observer: Observer | None = None
         self._debounce_task: asyncio.Task | None = None
@@ -107,7 +110,11 @@ class VaultIndex:
 
         embeddings: list[list[float]] = []
         for chunk in chunks:
-            embedding = await self.embed_text(chunk)
+            try:
+                embedding = await self.embed_text(chunk)
+            except Exception as exc:
+                logger.warning("index.embed_failed", path=rel, error=str(exc))
+                return 0
             if self._embedding_dim is None:
                 self._ensure_vec_table(len(embedding))
             embeddings.append(embedding)

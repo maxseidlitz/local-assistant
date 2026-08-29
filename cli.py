@@ -46,11 +46,15 @@ async def send_request(
                 token = msg.get("text", "")
                 print(token, end="", flush=True)
                 result_text += token
+            elif msg_type == "status" and msg.get("model"):
+                print(f"\n[{msg.get('state')} {msg.get('model')}]", file=sys.stderr)
             elif msg_type == "tool_call":
                 print(
                     f"\n[tool] {msg.get('name')}({json.dumps(msg.get('args', {}), ensure_ascii=False)})",
                     file=sys.stderr,
                 )
+            elif msg_type == "tool_result":
+                print(f"\n[result] {msg.get('name')}: {msg.get('text')}", file=sys.stderr)
             elif msg_type == "result":
                 result_text = msg.get("text", result_text)
                 if result_text and not result_text.endswith("\n"):

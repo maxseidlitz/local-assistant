@@ -1,0 +1,14 @@
+{
+  "name": "local-assistant-hud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tauri-Overlay für Local Assistant",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.0"
+  }
+}

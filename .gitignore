@@ -17,6 +17,7 @@ vault/
 hud/node_modules/
 hud/dist/
 hud/src-tauri/target/
+hud/src-tauri/gen/
 
 # OS
 .DS_Store
